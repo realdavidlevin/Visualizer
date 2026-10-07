@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Visualizer V5" />
+  <title>Visualizer V5</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at center, rgba(45,45,60,.24), rgba(0,0,0,.96) 58%);
+      transition: opacity .35s ease;
+      z-index: 3;
+    }
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .panel {
+      width: min(430px, 92vw);
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(30px, 8vw, 48px);
+      letter-spacing: -0.045em;
+    }
+    p {
+      color: rgba(255,255,255,.72);
+      line-height: 1.45;
+      margin: 0 0 22px;
+      font-size: 15px;
+    }
+    button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,.28);
+      background: rgba(255,255,255,.11);
+      color: white;
+      font: inherit;
+      font-weight: 700;
+      font-size: 17px;
+      border-radius: 999px;
+      padding: 15px 24px;
+      min-width: 190px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    button:active { transform: scale(.97); }
+    #status {
+      margin-top: 16px;
+      min-height: 20px;
+      font-size: 13px;
+      color: rgba(255,255,255,.52);
+    }
+
+    #chrome {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+    #modeLabel {
+      position: absolute;
+      top: max(14px, env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(0,0,0,.28);
+      border: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.88);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      opacity: 0;
+      transition: opacity .25s ease;
+    }
+    #modeLabel.show { opacity: 1; }
+
+    #hint {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      text-align: center;
+      color: rgba(255,255,255,.30);
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity .35s ease;
+      padding: 0 18px;
+    }
+    #hint.show { opacity: 1; }
+
+    #dots {
+      position: absolute;
+      bottom: max(44px, calc(env(safe-area-inset-bottom) + 30px));
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      opacity: 0;
+      transition: opacity .35s ease;
+    }
+    #dots.show { opacity: 1; }
+    #micStatus {
+      position: absolute;
+      top: max(55px, calc(env(safe-area-inset-top) + 52px));
+      left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.55); color: #b8e9c8;
+      border: 1px solid rgba(255,255,255,.16); border-radius: 20px;
+      font-size: 12px; padding: 7px 13px; white-space: nowrap;
+      pointer-events: auto; opacity: 0; transition: opacity .2s;
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    #micStatus.show { opacity: 1; }
+    #micStatus.problem { color: #ffd0a1; border-color: rgba(255,177,92,.35); }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,.25);
+      background: rgba(255,255,255,.12);
+    }
+    .dot.active {
+      background: rgba(255,255,255,.88);
+      border-color: rgba(255,255,255,.88);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="viz"></canvas>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>Visualizer V5</h1>
+      <p>
+        Swipe left and right between three visualizers:
+        circle spectrum, classic spectrum bars, and a darker Geiss-inspired waveform warp.
+      </p>
+      <button id="start">Start Visualizer</button>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div id="chrome">
+    <div id="modeLabel">Circle Spectrum</div>
+    <button id="micStatus" type="button" aria-label="Microphone status; tap to reconnect">● Mic ready</button>
+    <div id="dots">
+      <div class="dot active"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div id="hint">Swipe left or right to change visualizers</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("viz");
+    const ctx = canvas.getContext("2d");
+    const overlay = document.getElementById("overlay");
+    const startBtn = document.getElementById("start");
+    const statusEl = document.getElementById("status");
+    const hint = document.getElementById("hint");
+    const modeLabel = document.getElementById("modeLabel");
+    const micStatus = document.getElementById("micStatus");
+    const dots = [...document.querySelectorAll(".dot")];
+
+    let audioContext;
+    let analyser;
+    let freqData;
+    let timeData;
+    let stream;
+    let running = false;
+    let micConnected = false;
+    let connecting = false;
+    let retryTimer = null;
+    let retryCount = 0;
+    let lastGoodAudio = 0;
+    let lastWakeAttempt = 0;
+    let sourceNode = null;
+    let captureGeneration = 0;
+
+    let mode = 0;
+    const modeNames = [
+      "Circle Spectrum",
+      "Classic Spectrum",
+      "Geiss-Inspired Warp"
+    ];
+
+    const FFT_SIZE = 2048;
+    const BAR_COUNT = 96;
+    const CLASSIC_BARS = 42;
+
+    let smoothedCircle = new Array(BAR_COUNT).fill(0);
+    let smoothedClassic = new Array(CLASSIC_BARS).fill(0);
+    let avgEnergy = 0;
+    let beatHold = 0;
+
+    let stars = [];
+    let lastModeUiTimeout = null;
+
+    // Geiss-inspired buffers
+    let geissA = document.createElement("canvas");
+    let geissB = document.createElement("canvas");
+    let geissCtxA = geissA.getContext("2d", { alpha: false });
+    let geissCtxB = geissB.getContext("2d", { alpha: false });
+    let geissLowW = 180;
+    let geissLowH = 320;
+    let geissUseA = true;
+    let geissMap = makeWarpMap();
+    let geissNextMap = makeWarpMap();
+    let geissMapProgress = 0;
+    let geissBeatFlash = 0;
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(innerWidth * dpr);
+      canvas.height = Math.floor(innerHeight * dpr);
+      canvas.style.width = innerWidth + "px";
+      canvas.style.height = innerHeight + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      initStars();
+      resizeGeissBuffers();
+    }
+
+    function resizeGeissBuffers() {
+      const ratio = Math.max(innerWidth / innerHeight, 0.55);
+      geissLowW = ratio > 1 ? 240 : 180;
+      geissLowH = Math.round(geissLowW * (innerHeight / innerWidth));
+      geissLowH = Math.max(240, Math.min(420, geissLowH));
+
+      geissA.width = geissLowW;
+      geissA.height = geissLowH;
+      geissB.width = geissLowW;
+      geissB.height = geissLowH;
+      geissCtxA.fillStyle = "#000";
+      geissCtxA.fillRect(0, 0, geissLowW, geissLowH);
+      geissCtxB.fillStyle = "#000";
+      geissCtxB.fillRect(0, 0, geissLowW, geissLowH);
+    }
+
+    function initStars() {
+      const count = Math.max(35, Math.floor((innerWidth * innerHeight) / 18000));
+      stars = Array.from({ length: count }, () => ({
+        x: Math.random() * innerWidth,
+        y: Math.random() * innerHeight * 0.65,
+        size: Math.random() * 2.2 + 0.5,
+        alpha: Math.random() * 0.8 + 0.15
+      }));
+    }
+
+    function showModeUi() {
+      modeLabel.textContent = modeNames[mode];
+      modeLabel.classList.add("show");
+      hint.classList.add("show");
+      dots.forEach((dot, i) => dot.classList.toggle("active", i === mode));
+      document.getElementById("dots").classList.add("show");
+
+      clearTimeout(lastModeUiTimeout);
+      lastModeUiTimeout = setTimeout(() => {
+        modeLabel.classList.remove("show");
+        hint.classList.remove("show");
+        document.getElementById("dots").classList.remove("show");
+      }, 1800);
+    }
+
+    function setMode(nextMode) {
+      mode = (nextMode + modeNames.length) % modeNames.length;
+      showModeUi();
+    }
+
+    function nextMode() { setMode(mode + 1); }
+    function prevMode() { setMode(mode - 1); }
+
+    function makeWarpMap() {
+      return {
+        phase1: Math.random() * Math.PI * 2,
+        phase2: Math.random() * Math.PI * 2,
+        ampX: 3 + Math.random() * 8,
+        ampY: 0.3 + Math.random() * 2.2,
+        freq1: 0.015 + Math.random() * 0.045,
+        freq2: 0.008 + Math.random() * 0.03,
+        zoom: 1.004 + Math.random() * 0.02,
+        drift: (Math.random() - 0.5) * 0.9,
+        tintHue: Math.floor(Math.random() * 360)
+      };
+    }
+
+    function blend(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function currentWarpMap() {
+      return {
+        phase1: blend(geissMap.phase1, geissNextMap.phase1, geissMapProgress),
+        phase2: blend(geissMap.phase2, geissNextMap.phase2, geissMapProgress),
+        ampX: blend(geissMap.ampX, geissNextMap.ampX, geissMapProgress),
+        ampY: blend(geissMap.ampY, geissNextMap.ampY, geissMapProgress),
+        freq1: blend(geissMap.freq1, geissNextMap.freq1, geissMapProgress),
+        freq2: blend(geissMap.freq2, geissNextMap.freq2, geissMapProgress),
+        zoom: blend(geissMap.zoom, geissNextMap.zoom, geissMapProgress),
+        drift: blend(geissMap.drift, geissNextMap.drift, geissMapProgress),
+        tintHue: blend(geissMap.tintHue, geissNextMap.tintHue, geissMapProgress)
+      };
+    }
+
+    function updateAudioFeatures() {
+      analyser.getByteFrequencyData(freqData);
+      analyser.getByteTimeDomainData(timeData);
+
+      let energy = 0;
+      for (let i = 2; i < 28; i++) energy += freqData[i];
+      energy /= 26;
+      avgEnergy = avgEnergy * 0.92 + energy * 0.08;
+
+      const beat = energy > avgEnergy * 1.24 && energy > 42 && beatHold <= 0;
+      if (beat) {
+        beatHold = 10;
+        geissMap = currentWarpMap();
+        geissNextMap = makeWarpMap();
+        geissMapProgress = 0;
+        geissBeatFlash = 1;
+      } else {
+        beatHold = Math.max(0, beatHold - 1);
+      }
+
+      geissMapProgress = Math.min(1, geissMapProgress + 0.003);
+      geissBeatFlash *= 0.92;
+      return beat;
+    }
+
+    function getBandValue(index, totalBars, maxBin = 700) {
+      const minBin = 2;
+      const t1 = index / totalBars;
+      const t2 = (index + 1) / totalBars;
+
+      const start = Math.floor(minBin * Math.pow(maxBin / minBin, t1));
+      const end = Math.max(start + 1, Math.floor(minBin * Math.pow(maxBin / minBin, t2)));
+
+      let sum = 0;
+      let peak = 0;
+      let count = 0;
+      for (let i = start; i < end && i < freqData.length; i++) {
+        const v = freqData[i] / 255;
+        sum += v;
+        peak = Math.max(peak, v);
+        count++;
+      }
+      const avg = count ? sum / count : 0;
+      return Math.min(1, avg * 0.75 + peak * 0.45);
+    }
+
+    function drawBackground() {
+      const w = innerWidth;
+      const h = innerHeight;
+      const bg = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.65);
+      bg.addColorStop(0, "rgba(18,18,28,1)");
+      bg.addColorStop(0.52, "rgba(4,4,8,1)");
+      bg.addColorStop(1, "rgba(0,0,0,1)");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    function drawCircleSpectrum() {
+      drawBackground();
+
+      const w = innerWidth;
+      const h = innerHeight;
+      const cx = w / 2;
+      const cy = h / 2;
+      const radius = Math.min(w, h) * 0.19;
+      const maxBar = Math.min(w, h) * 0.27;
+      const lineWidth = Math.max(2.2, Math.min(w, h) * 0.006);
+
+      const halo = ctx.createRadialGradient(cx, cy, radius * 0.2, cx, cy, radius * 1.65);
+      halo.addColorStop(0, "rgba(255,255,255,.055)");
+      halo.addColorStop(0.58, "rgba(150,160,255,.028)");
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius * 1.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,255,255,.18)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      for (let i = 0; i < BAR_COUNT; i++) {
+        let value = getBandValue(i, BAR_COUNT, 700);
+
+        const pos = i / BAR_COUNT;
+        const quadrantTame = 1 - 0.18 * Math.exp(-Math.pow((pos - 0.15) / 0.12, 2));
+        const bassTame = 1 - 0.10 * Math.exp(-Math.pow((pos - 0.04) / 0.05, 2));
+        const elsewhereLift = 1 + 0.06 * Math.exp(-Math.pow((pos - 0.62) / 0.28, 2));
+        value *= quadrantTame * bassTame * elsewhereLift;
+
+        let target = Math.max(0.02, Math.pow(value, 1.42));
+        smoothedCircle[i] = smoothedCircle[i] * 0.84 + target * 0.16;
+
+        const angle = (i / BAR_COUNT) * Math.PI * 2 - Math.PI / 2;
+        const barLength = 4 + smoothedCircle[i] * maxBar;
+        const x1 = cx + Math.cos(angle) * (radius + 4);
+        const y1 = cy + Math.sin(angle) * (radius + 4);
+        const x2 = cx + Math.cos(angle) * (radius + 4 + barLength);
+        const y2 = cy + Math.sin(angle) * (radius + 4 + barLength);
+
+        const hue = (i / BAR_COUNT) * 320 + 190;
+        const lightness = 62 + smoothedCircle[i] * 18;
+
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineWidth = lineWidth;
+        ctx.shadowBlur = 10 + smoothedCircle[i] * 18;
+        ctx.shadowColor = `hsla(${hue}, 100%, 65%, .75)`;
+        ctx.strokeStyle = `hsla(${hue}, 100%, ${lightness}%, .96)`;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function drawClassicSpectrum(time) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
+
+      // Star field based on the reference vibe.
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+        const pulse = 0.75 + 0.25 * Math.sin(time * 0.0013 + i * 1.7);
+        ctx.fillStyle = `rgba(255,255,255,${s.alpha * pulse})`;
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+      }
+
+      const ground = innerHeight * 0.82;
+      const usableWidth = innerWidth * 0.82;
+      const startX = (innerWidth - usableWidth) / 2;
+      const gap = Math.max(2, usableWidth * 0.008);
+      const barWidth = (usableWidth - gap * (CLASSIC_BARS - 1)) / CLASSIC_BARS;
+      const maxBarHeight = innerHeight * 0.52;
+
+      // faint glow line at the bottom area
+      const horizonGlow = ctx.createLinearGradient(0, ground - 12, 0, ground + 140);
+      horizonGlow.addColorStop(0, "rgba(255,200,100,0.04)");
+      horizonGlow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = horizonGlow;
+      ctx.fillRect(0, ground - 12, innerWidth, innerHeight - ground + 12);
+
+      for (let i = 0; i < CLASSIC_BARS; i++) {
+        const v = getBandValue(i, CLASSIC_BARS, 520);
+        const target = Math.pow(v, 1.08);
+        smoothedClassic[i] = smoothedClassic[i] * 0.70 + target * 0.30;
+
+        let barHeight = 8 + smoothedClassic[i] * maxBarHeight;
+
+        // Slight center emphasis like the screenshot.
+        const centerBias = 1 + 0.22 * Math.exp(-Math.pow((i / (CLASSIC_BARS - 1) - 0.5) / 0.20, 2));
+        barHeight *= centerBias;
+
+        const x = startX + i * (barWidth + gap);
+        const y = ground - barHeight;
+
+        const grad = ctx.createLinearGradient(0, y, 0, ground);
+        grad.addColorStop(0, "#ff7045");
+        grad.addColorStop(0.32, "#e9da4c");
+        grad.addColorStop(0.72, "#7fc84a");
+        grad.addColorStop(1, "#2d8e20");
+
+        ctx.save();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "rgba(255,160,64,.22)";
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y, barWidth, barHeight);
+        ctx.restore();
+
+        // Subtle highlight rim
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.fillRect(x, y, Math.max(1, barWidth * 0.16), barHeight);
+      }
+    }
+
+    function drawGeissInspired(time) {
+      const srcCanvas = geissUseA ? geissA : geissB;
+      const srcCtx = geissUseA ? geissCtxA : geissCtxB;
+      const dstCanvas = geissUseA ? geissB : geissA;
+      const dstCtx = geissUseA ? geissCtxB : geissCtxA;
+      geissUseA = !geissUseA;
+
+      const map = currentWarpMap();
+      const beatBoost = geissBeatFlash * 4.0;
+
+      // Start with a slight fade, then warp the previous frame into the new one.
+      dstCtx.fillStyle = "rgba(0,0,0,0.22)";
+      dstCtx.fillRect(0, 0, geissLowW, geissLowH);
+
+      const cx = geissLowW / 2;
+      const cy = geissLowH / 2;
+      const zoom = map.zoom + beatBoost * 0.002;
+      const rows = 70;
+
+      for (let i = 0; i < rows; i++) {
+        const sy = (i / rows) * geissLowH;
+        const sh = geissLowH / rows + 1;
+        const normY = sy / geissLowH;
+        const waveX =
+          Math.sin(normY * (6.8 + map.freq1 * 260) + time * 0.0013 + map.phase1) * (map.ampX + beatBoost);
+        const waveX2 =
+          Math.cos(normY * (13.0 + map.freq2 * 420) - time * 0.0009 + map.phase2) * (map.ampX * 0.35);
+        const dx = waveX + waveX2 + map.drift * (normY - 0.5) * 10;
+
+        const localZoom = zoom + Math.sin(normY * 10 + time * 0.0007 + map.phase2) * 0.003;
+        const dw = geissLowW * localZoom;
+        const dh = sh * (1 + map.ampY * 0.05);
+        const destX = cx - dw / 2 + dx;
+        const destY = sy - (dh - sh) / 2;
+
+        dstCtx.drawImage(srcCanvas, 0, sy, geissLowW, sh, destX, destY, dw, dh);
+      }
+
+      // Add another mild offset pass for more "liquid" feel.
+      dstCtx.globalCompositeOperation = "source-over";
+      dstCtx.globalAlpha = 0.08;
+      for (let i = 0; i < 22; i++) {
+        const y = (i / 22) * geissLowH;
+        const h = geissLowH / 22 + 1;
+        const dx = Math.sin(i * 0.6 + time * 0.0011 + map.phase1) * (1.8 + map.ampX * 0.15);
+        dstCtx.drawImage(srcCanvas, 0, y, geissLowW, h, dx, y, geissLowW, h);
+      }
+      dstCtx.globalAlpha = 1;
+      dstCtx.globalCompositeOperation = "source-over";
+
+      // Draw the current waveform into the image (the "cheap" step), then future
+      // frames warp it around.
+      const hue = map.tintHue;
+      dstCtx.save();
+      dstCtx.shadowBlur = 4 + geissBeatFlash * 6;
+      dstCtx.shadowColor = `hsla(${hue}, 100%, 68%, 0.35)`;
+
+      // waveform
+      dstCtx.lineWidth = 2.0;
+      dstCtx.strokeStyle = `hsla(${hue}, 100%, 66%, 0.62)`;
+      dstCtx.beginPath();
+      for (let x = 0; x < geissLowW; x++) {
+        const idx = Math.floor((x / geissLowW) * timeData.length);
+        const sample = (timeData[idx] - 128) / 128;
+        const y = cy + sample * (geissLowH * 0.13);
+        if (x === 0) dstCtx.moveTo(x, y);
+        else dstCtx.lineTo(x, y);
+      }
+      dstCtx.stroke();
+
+      // a brighter center line for richness
+      dstCtx.lineWidth = 1;
+      dstCtx.strokeStyle = `rgba(255,255,255,0.18)`;
+      dstCtx.beginPath();
+      for (let x = 0; x < geissLowW; x += 2) {
+        const idx = Math.floor((x / geissLowW) * timeData.length);
+        const sample = (timeData[idx] - 128) / 128;
+        const y = cy + sample * (geissLowH * 0.06);
+        if (x === 0) dstCtx.moveTo(x, y);
+        else dstCtx.lineTo(x, y);
+      }
+      dstCtx.stroke();
+
+      // bass pulse ring / glow
+      const bass = Math.min(1, avgEnergy / 190);
+      const ringR = 18 + bass * 22 + geissBeatFlash * 8;
+      dstCtx.strokeStyle = `hsla(${(hue + 80) % 360}, 100%, 58%, ${0.08 + bass * 0.10})`;
+      dstCtx.lineWidth = 0.9 + bass * 0.7;
+      dstCtx.beginPath();
+      dstCtx.arc(cx, cy, ringR, 0, Math.PI * 2);
+      dstCtx.stroke();
+      dstCtx.restore();
+
+      // slight beat flash
+      if (geissBeatFlash > 0.03) {
+        dstCtx.fillStyle = `rgba(255,255,255,${geissBeatFlash * 0.035})`;
+        dstCtx.fillRect(0, 0, geissLowW, geissLowH);
+      }
+
+      // add a subtle dark veil so the warp stays inky instead of blowing out
+      dstCtx.fillStyle = "rgba(0,0,0,0.08)";
+      dstCtx.fillRect(0, 0, geissLowW, geissLowH);
+
+      // render to main canvas
+      ctx.imageSmoothingEnabled = true;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
+      ctx.drawImage(dstCanvas, 0, 0, innerWidth, innerHeight);
+
+      // subtle vignette
+      const grad = ctx.createRadialGradient(innerWidth / 2, innerHeight / 2, 0, innerWidth / 2, innerHeight / 2, Math.max(innerWidth, innerHeight) * 0.65);
+      grad.addColorStop(0.55, "rgba(0,0,0,0)");
+      grad.addColorStop(1, "rgba(0,0,0,0.42)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
+    }
+
+    function draw(time) {
+      if (!running) return;
+      if (analyser && freqData && timeData && audioContext?.state === "running") {
+        updateAudioFeatures();
+      } else if (freqData && timeData) {
+        freqData.fill(0);
+        timeData.fill(128);
+      } else {
+        requestAnimationFrame(draw);
+        return;
+      }
+
+      if (mode === 0) drawCircleSpectrum();
+      else if (mode === 1) drawClassicSpectrum(time);
+      else drawGeissInspired(time);
+
+      requestAnimationFrame(draw);
+    }
+
+    function setMicStatus(message, problem = false) {
+      micStatus.textContent = message;
+      micStatus.classList.toggle("problem", problem);
+      micStatus.classList.add("show");
+    }
+
+    function requestAudioSessionMode() {
+      // Experimental Safari API: this is only a request, not a promise that
+      // iOS will permit YouTube and microphone capture simultaneously.
+      try {
+        if (navigator.audioSession) {
+          navigator.audioSession.type = "play-and-record";
+        }
+      } catch (err) {
+        console.debug("AudioSession override unavailable", err);
+      }
+    }
+
+    function closeCurrentCapture() {
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          track.onended = null;
+          track.onmute = null;
+          track.onunmute = null;
+          track.stop();
+        }
+        stream = null;
+      }
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch (_) {}
+        sourceNode = null;
+      }
+      micConnected = false;
+    }
+
+    function scheduleReconnect(reason) {
+      if (!running || connecting || retryTimer) return;
+      setMicStatus("● Mic interrupted · tap to retry", true);
+      // Retry while the page is visible. Some iOS interruptions require
+      // a fresh gesture, in which case tapping the indicator retries instantly.
+      if (document.visibilityState !== "visible") return;
+      const delay = Math.min(700 * Math.pow(1.6, retryCount), 6000);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        retryCount++;
+        connectMic("Automatic recovery: " + reason);
+      }, delay);
+    }
+
+    async function connectMic(reason = "Start") {
+      if (connecting) return;
+      connecting = true;
+      const thisGeneration = ++captureGeneration;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      setMicStatus("◌ Connecting microphone…", true);
+      try {
+        closeCurrentCapture();
+        requestAudioSessionMode();
+
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          },
+          video: false
+        });
+        if (thisGeneration !== captureGeneration) {
+          newStream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        stream = newStream;
+
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!audioContext || audioContext.state === "closed") {
+          audioContext = new AudioCtx();
+        }
+        if (audioContext.state !== "running") {
+          await audioContext.resume();
+        }
+        requestAudioSessionMode();
+
+        if (!analyser) {
+          analyser = audioContext.createAnalyser();
+          analyser.fftSize = FFT_SIZE;
+          analyser.smoothingTimeConstant = 0.72;
+          analyser.minDecibels = -95;
+          analyser.maxDecibels = -15;
+          freqData = new Uint8Array(analyser.frequencyBinCount);
+          timeData = new Uint8Array(analyser.fftSize);
+        }
+        sourceNode = audioContext.createMediaStreamSource(stream);
+        sourceNode.connect(analyser); // No speaker output or feedback loop.
+
+        const track = stream.getAudioTracks()[0];
+        if (track) {
+          track.onended = () => {
+            micConnected = false;
+            scheduleReconnect("track ended");
+          };
+          track.onmute = () => {
+            setMicStatus("◌ Microphone muted by iOS", true);
+          };
+          track.onunmute = () => {
+            setMicStatus("● Microphone restored");
+          };
+        }
+        retryCount = 0;
+        micConnected = true;
+        lastGoodAudio = performance.now();
+        setMicStatus("● Mic connected · tap to reset");
+        statusEl.textContent = "";
+      } catch (err) {
+        console.warn(reason + " microphone attempt failed", err);
+        micConnected = false;
+        if (err.name === "NotAllowedError") {
+          setMicStatus("● Mic blocked · tap to retry", true);
+          statusEl.textContent = "Microphone access denied. Check Safari permissions.";
+        } else {
+          setMicStatus("● Mic unavailable · tap to retry", true);
+          statusEl.textContent = err.message || "Microphone unavailable";
+        }
+        if (running && err.name !== "NotAllowedError") {
+          // Schedule after 'connecting' flips back to false.
+          setTimeout(() => scheduleReconnect("capture error"), 100);
+        }
+      } finally {
+        connecting = false;
+      }
+    }
+
+    async function startVisualizer() {
+      if (running) return;
+      if (!navigator.mediaDevices?.getUserMedia) {
+        statusEl.textContent = "Microphone needs HTTPS in Safari.";
+        return;
+      }
+      running = true;
+      overlay.classList.add("hidden");
+      showModeUi();
+      requestAnimationFrame(draw);
+      await connectMic("Initial permission");
+    }
+
+    startBtn.addEventListener("click", startVisualizer);
+    micStatus.addEventListener("click", () => {
+      if (!running || connecting) return;
+      retryCount = 0;
+      connectMic("Manual reconnect");
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!running) return;
+      if (document.visibilityState === "visible") {
+        setTimeout(() => {
+          if (!running) return;
+          if (!stream?.active || stream.getAudioTracks().every(t => t.readyState !== "live")) {
+            connectMic("Returned to visualizer");
+          } else if (audioContext?.state !== "running") {
+            audioContext.resume().catch(() => scheduleReconnect("AudioContext suspended"));
+          }
+        }, 250);
+      } else {
+        setMicStatus("◌ Backgrounded · audio may pause", true);
+      }
+    });
+    window.addEventListener("pageshow", () => {
+      if (running && audioContext?.state !== "running") {
+        audioContext.resume().catch(() => scheduleReconnect("Page restored"));
+      }
+    });
+
+    // On iOS, an interrupted AudioContext can remain suspended even when the
+    // mic track looks live. Detect that case and recover without recreating
+    // permission prompts unnecessarily. Silence alone is NOT an interruption.
+    setInterval(() => {
+      if (!running || connecting || document.visibilityState !== "visible") return;
+      if (audioContext && audioContext.state !== "running") {
+        setMicStatus("◌ Audio paused · restoring…", true);
+        if (performance.now() - lastWakeAttempt > 2500) {
+          lastWakeAttempt = performance.now();
+          audioContext.resume().then(() => {
+            if (audioContext.state === "running") setMicStatus("● Mic connected · tap to reset");
+          }).catch(() => scheduleReconnect("AudioContext inactive"));
+        }
+      } else if (!stream?.active || !stream.getAudioTracks().some(t => t.readyState === "live")) {
+        scheduleReconnect("Missing audio track");
+      }
+    }, 1700);
+
+    // Swipe gesture support
+    let touchStartX = null;
+    let touchStartY = null;
+    let touchMoved = false;
+
+    document.addEventListener("touchstart", (e) => {
+      if (!running || !e.touches.length) return;
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      touchMoved = false;
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+      if (!running || touchStartX === null || !e.touches.length) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - touchStartX) > 10 || Math.abs(t.clientY - touchStartY) > 10) {
+        touchMoved = true;
+      }
+    }, { passive: true });
+
+    document.addEventListener("touchend", (e) => {
+      if (!running || touchStartX === null || !touchMoved) {
+        touchStartX = null;
+        touchStartY = null;
+        return;
+      }
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        if (dx < 0) nextMode();
+        else prevMode();
+      }
+      touchStartX = null;
+      touchStartY = null;
+    }, { passive: true });
+
+    // Also allow arrow keys on desktop if you preview there.
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight") nextMode();
+      if (e.key === "ArrowLeft") prevMode();
+    });
+
+    addEventListener("resize", resize, { passive: true });
+    resize();
+  </script>
+</body>
+</html>
